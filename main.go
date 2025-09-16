@@ -5,7 +5,7 @@ import (
 	"os"
 	"os/signal"
 
-	"github.com/zainokta/item-sync/internal/server"
+	"github.com/zainokta/item-sync/internal/infrastructure/server"
 )
 
 func main() {
