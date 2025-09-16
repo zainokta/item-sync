@@ -40,6 +40,8 @@ func NewApplication() (*Application, error) {
 		return nil, err
 	}
 
+	RegisterRoutes(server.GetEcho(), cfg, logger, db, redisClient)
+
 	return &Application{
 		config:   cfg,
 		logger:   logger,

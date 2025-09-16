@@ -17,6 +17,7 @@ import (
 type Server interface {
 	Start() error
 	Stop() error
+	GetEcho() *echo.Echo
 }
 
 type EchoServer struct {
@@ -75,6 +76,10 @@ func (s *EchoServer) Stop() error {
 	}
 
 	return nil
+}
+
+func (s *EchoServer) GetEcho() *echo.Echo {
+	return s.echo
 }
 
 func (s *EchoServer) WaitForShutdown() {

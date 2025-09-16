@@ -19,6 +19,8 @@ type Config struct {
 	CORS     CORSConfig     `envPrefix:"CORS_"`
 	Database DatabaseConfig `envPrefix:"DATABASE_"`
 	Redis    RedisConfig    `envPrefix:"REDIS_"`
+	API      APIConfig      `envPrefix:"API_"`
+	Cache    CacheConfig    `envPrefix:"CACHE_"`
 }
 
 type ServerConfig struct {
@@ -58,6 +60,43 @@ type RedisConfig struct {
 	DB       int    `env:"DB" envDefault:"0"`
 }
 
+// ExternalAPIConfig represents configuration for a generic external API
+type ExternalAPIConfig struct {
+	BaseURL    string        `env:"BASE_URL" envDefault:""`
+	Timeout    time.Duration `env:"TIMEOUT" envDefault:"30s"`
+	MaxRetries int           `env:"MAX_RETRIES" envDefault:"3"`
+	RetryDelay time.Duration `env:"RETRY_DELAY" envDefault:"1s"`
+	Headers    map[string]string
+	Enable     bool              `env:"ENABLE" envDefault:"false"`
+	APIKey     string            `env:"API_KEY"`
+	AuthType   string            `env:"AUTH_TYPE" envDefault:"none"` // none, bearer, basic, api_key
+	ItemType   string            `env:"ITEM_TYPE" envDefault:"custom"`
+	Endpoints  map[string]string // API endpoints for different operations
+}
+
+type APIConfig struct {
+	APIType    string        `env:"API_TYPE" envDefault:"pokemon"`
+	Timeout    time.Duration `env:"TIMEOUT" envDefault:"30s"`
+	MaxRetries int           `env:"MAX_RETRIES" envDefault:"3"`
+	RetryDelay time.Duration `env:"RETRY_DELAY" envDefault:"1s"`
+	RateLimit  int           `env:"RATE_LIMIT" envDefault:"100"` // requests per minute
+
+	// HTTP Transport Configuration
+	MaxIdleConns        int           `env:"MAX_IDLE_CONNS" envDefault:"10"`
+	IdleConnTimeout     time.Duration `env:"IDLE_CONN_TIMEOUT" envDefault:"30s"`
+	DisableCompression  bool          `env:"DISABLE_COMPRESSION" envDefault:"false"`
+	MaxIdleConnsPerHost int           `env:"MAX_IDLE_CONNS_PER_HOST" envDefault:"10"`
+
+	// Generic External APIs
+	ExternalAPIs map[string]ExternalAPIConfig
+}
+
+type CacheConfig struct {
+	DefaultTTL     time.Duration `env:"DEFAULT_TTL" envDefault:"5m"`
+	ItemsCacheTTL  time.Duration `env:"ITEMS_CACHE_TTL" envDefault:"10m"`
+	StatusCacheTTL time.Duration `env:"STATUS_CACHE_TTL" envDefault:"5m"`
+}
+
 func LoadConfig() (*Config, error) {
 	environment := os.Getenv("ENV")
 	if environment == "" {
@@ -67,6 +106,19 @@ func LoadConfig() (*Config, error) {
 	cfg := &Config{}
 	if err := env.Parse(cfg); err != nil {
 		return nil, fmt.Errorf("failed to parse environment variables: %w", err)
+	}
+
+	// Initialize ExternalAPIs map if nil
+	if cfg.API.ExternalAPIs == nil {
+		cfg.API.ExternalAPIs = make(map[string]ExternalAPIConfig)
+	}
+
+	// Initialize FieldMapping and Endpoints maps for each API
+	for name, apiConfig := range cfg.API.ExternalAPIs {
+		if apiConfig.Endpoints == nil {
+			apiConfig.Endpoints = make(map[string]string)
+		}
+		cfg.API.ExternalAPIs[name] = apiConfig
 	}
 
 	return cfg, nil
@@ -114,4 +166,18 @@ func parseStringSlice(s string) []string {
 	}
 
 	return result
+}
+
+// GetExternalAPIConfig returns the configuration for a specific external API
+func (c *APIConfig) GetExternalAPIConfig(name string) (ExternalAPIConfig, bool) {
+	config, exists := c.ExternalAPIs[name]
+	return config, exists
+}
+
+// AddExternalAPIConfig adds or updates an external API configuration
+func (c *APIConfig) AddExternalAPIConfig(name string, config ExternalAPIConfig) {
+	if c.ExternalAPIs == nil {
+		c.ExternalAPIs = make(map[string]ExternalAPIConfig)
+	}
+	c.ExternalAPIs[name] = config
 }
