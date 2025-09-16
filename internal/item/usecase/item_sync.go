@@ -7,6 +7,7 @@ import (
 
 	pkgErrors "github.com/zainokta/item-sync/internal/errors"
 	"github.com/zainokta/item-sync/internal/item/entity"
+	"github.com/zainokta/item-sync/internal/item/strategy"
 	"github.com/zainokta/item-sync/pkg/logger"
 )
 
@@ -15,14 +16,17 @@ type SyncItemsUseCase struct {
 	apiClient ExternalAPIClient
 	cache     ItemCache
 	logger    logger.Logger
+	strategy  strategy.SyncStrategy
 }
 
-func NewSyncItemsUseCase(itemRepo ItemRepository, apiClient ExternalAPIClient, cache ItemCache, logger logger.Logger) *SyncItemsUseCase {
+func NewSyncItemsUseCase(itemRepo ItemRepository, apiClient ExternalAPIClient, cache ItemCache, logger logger.Logger, apiType string) *SyncItemsUseCase {
+	syncStrategy := strategy.NewSyncStrategy(apiType, logger)
 	return &SyncItemsUseCase{
 		itemRepo:  itemRepo,
 		apiClient: apiClient,
 		cache:     cache,
 		logger:    logger,
+		strategy:  syncStrategy,
 	}
 }
 
@@ -41,7 +45,14 @@ type SyncItemsResponse struct {
 }
 
 func (uc *SyncItemsUseCase) Execute(ctx context.Context, req SyncItemsRequest) (SyncItemsResponse, error) {
-	externalItems, err := uc.apiClient.Fetch(ctx, req.APISource, req.Operation, req.Params)
+	strategyReq := strategy.SyncItemsRequest{
+		ForceSync: req.ForceSync,
+		APISource: req.APISource,
+		Operation: req.Operation,
+		Params:    req.Params,
+	}
+
+	externalItems, err := uc.strategy.FetchAllItems(ctx, uc.apiClient, strategyReq)
 	if err != nil {
 		return SyncItemsResponse{}, pkgErrors.ExternalAPIFailed(err)
 	}

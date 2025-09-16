@@ -6,8 +6,8 @@ import (
 	"github.com/labstack/echo/v4"
 	"github.com/redis/go-redis/v9"
 	"github.com/zainokta/item-sync/config"
-	"github.com/zainokta/item-sync/internal/item/domain"
 	"github.com/zainokta/item-sync/internal/item/handler"
+	"github.com/zainokta/item-sync/internal/item/repository"
 	"github.com/zainokta/item-sync/internal/item/usecase"
 	"github.com/zainokta/item-sync/pkg/api"
 	loggerPkg "github.com/zainokta/item-sync/pkg/logger"
@@ -15,9 +15,9 @@ import (
 
 func RegisterRoutes(e *echo.Echo, cfg *config.Config, logger loggerPkg.Logger, db *sql.DB, redis *redis.Client) {
 	// Create dependencies
-	itemRepo := domain.NewItemRepository(db, logger)
-	itemCache := domain.NewItemCache(redis, cfg.Cache.DefaultTTL, logger)
-	
+	itemRepo := repository.NewItemRepository(db, logger)
+	itemCache := repository.NewItemCache(redis, cfg.Cache.DefaultTTL, logger)
+
 	// Create API client based on configuration
 	apiClient, err := api.NewAPIClient(cfg.API.APIType, cfg.API)
 	if err != nil {
@@ -26,7 +26,7 @@ func RegisterRoutes(e *echo.Echo, cfg *config.Config, logger loggerPkg.Logger, d
 	}
 
 	// Create use cases with configured API client
-	syncUseCase := usecase.NewSyncItemsUseCase(itemRepo, apiClient, itemCache, logger)
+	syncUseCase := usecase.NewSyncItemsUseCase(itemRepo, apiClient, itemCache, logger, cfg.API.APIType)
 	listUseCase := usecase.NewListItemsUseCase(itemRepo, itemCache, logger)
 	detailUseCase := usecase.NewFetchItemUseCase(itemRepo, apiClient, itemCache, logger)
 
