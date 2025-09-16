@@ -21,6 +21,20 @@ func NewItemDetailHandler(fetchItemUseCase *usecase.FetchItemUseCase, logger log
 	}
 }
 
+// GetItemDetail godoc
+// @Summary      Get item details by ID
+// @Description  Retrieve detailed information for a specific item by its ID
+// @Tags         items
+// @Accept       json
+// @Produce      json
+// @Param        id path int true "Item ID" minimum(1)
+// @Param        api_source query string false "API source for the item" Enums(pokemon, openweather, unknown) default(unknown)
+// @Success      200 {object} map[string]interface{} "Item details"
+// @Success      200 {object} object{item=entity.Item} "Item details"
+// @Failure      400 {object} map[string]string "Invalid ID format"
+// @Failure      404 {object} map[string]string "Item not found"
+// @Failure      500 {object} map[string]string "Internal server error"
+// @Router       /items/{id} [get]
 func (h *ItemDetailHandler) GetItemDetail(c echo.Context) error {
 	idStr := c.Param("id")
 	id, err := strconv.Atoi(idStr)
@@ -32,7 +46,7 @@ func (h *ItemDetailHandler) GetItemDetail(c echo.Context) error {
 
 	apiSource := c.QueryParam("api_source")
 	if apiSource == "" {
-		apiSource = "unknown" 
+		apiSource = "unknown"
 	}
 
 	req := usecase.FetchItemRequest{
@@ -49,7 +63,6 @@ func (h *ItemDetailHandler) GetItemDetail(c echo.Context) error {
 	}
 
 	return c.JSON(http.StatusOK, map[string]interface{}{
-		"item":       response.Item,
-		"from_cache": response.FromCache,
+		"item": response.Item,
 	})
 }

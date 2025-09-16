@@ -23,8 +23,7 @@ type FetchItemRequest struct {
 }
 
 type FetchItemResponse struct {
-	Item      entity.Item `json:"item"`
-	FromCache bool        `json:"from_cache"`
+	Item entity.Item `json:"item"`
 }
 
 func NewFetchItemUseCase(itemRepo ItemRepository, apiClient ExternalAPIClient, cache ItemCache, logger logger.Logger) *FetchItemUseCase {
@@ -40,8 +39,7 @@ func (uc *FetchItemUseCase) Execute(ctx context.Context, req FetchItemRequest) (
 	cacheKey := fmt.Sprintf("item:%d:%s", req.ID, req.APISource)
 	if cachedItem, err := uc.cache.GetItem(ctx, cacheKey); err == nil {
 		return FetchItemResponse{
-			Item:      cachedItem,
-			FromCache: true,
+			Item: cachedItem,
 		}, nil
 	}
 
@@ -50,8 +48,7 @@ func (uc *FetchItemUseCase) Execute(ctx context.Context, req FetchItemRequest) (
 			uc.logger.Warn("Failed to cache item", "error", cacheErr, "cache_key", cacheKey)
 		}
 		return FetchItemResponse{
-			Item:      item,
-			FromCache: false,
+			Item: item,
 		}, nil
 	}
 
@@ -61,7 +58,7 @@ func (uc *FetchItemUseCase) Execute(ctx context.Context, req FetchItemRequest) (
 	}
 
 	item := entity.NewItem()
-	item.FromAPIResponse(externalItem)
+	item.FromAPIResponse(req.APISource, externalItem)
 
 	if err := item.Validate(); err != nil {
 		return FetchItemResponse{}, err
@@ -76,7 +73,6 @@ func (uc *FetchItemUseCase) Execute(ctx context.Context, req FetchItemRequest) (
 	}
 
 	return FetchItemResponse{
-		Item:      item,
-		FromCache: false,
+		Item: item,
 	}, nil
 }

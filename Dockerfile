@@ -19,7 +19,7 @@ RUN go mod download
 # Copy source code
 COPY . .
 
-# Build the application with Echo optimizations
+# Build the main application with Echo optimizations
 RUN GOEXPERIMENT=greenteagc CGO_ENABLED=0 GOOS=linux go build \
     -a \
     -installsuffix cgo \
@@ -39,7 +39,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 
 WORKDIR /root/
 
-# Copy the binary from builder stage
+# Copy both binaries from builder stage
 COPY --from=builder /app/main .
 
 # Create non-root user for security

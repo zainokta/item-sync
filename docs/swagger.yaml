@@ -1,0 +1,239 @@
+basePath: /
+definitions:
+  dto.ErrorResponse:
+    properties:
+      code:
+        example: VALIDATION_ERROR
+        type: string
+      details: {}
+      message:
+        example: Validation failed
+        type: string
+    type: object
+  dto.GetItemsResponse:
+    properties:
+      items:
+        items:
+          $ref: '#/definitions/entity.Item'
+        type: array
+      total:
+        example: 150
+        type: integer
+    type: object
+  dto.SyncItemsRequest:
+    type: object
+  dto.SyncItemsResponse:
+    properties:
+      errors:
+        items:
+          type: string
+        type: array
+      failed_count:
+        example: 2
+        type: integer
+      items:
+        items:
+          $ref: '#/definitions/entity.Item'
+        type: array
+      success_count:
+        example: 15
+        type: integer
+    type: object
+  entity.Item:
+    properties:
+      api_source:
+        example: pokemon
+        type: string
+      created_at:
+        example: "2024-01-15T10:00:00Z"
+        type: string
+      description:
+        example: Electric-type Pokemon
+        type: string
+      extend_info:
+        additionalProperties: true
+        type: object
+      external_id:
+        example: 25
+        type: integer
+      id:
+        example: 1
+        type: integer
+      synced_at:
+        example: "2024-01-15T10:30:00Z"
+        type: string
+      title:
+        example: Pikachu
+        type: string
+      updated_at:
+        example: "2024-01-15T10:30:00Z"
+        type: string
+    type: object
+host: localhost:8080
+info:
+  contact:
+    email: support@itemsync.com
+    name: API Support
+  description: A robust Go service for synchronizing external API data with automatic
+    background jobs, retry logic, and idempotent operations.
+  license:
+    name: MIT
+    url: https://opensource.org/licenses/MIT
+  title: Item Sync Service API
+  version: 1.0.0
+paths:
+  /items:
+    get:
+      consumes:
+      - application/json
+      description: Retrieve a paginated list of items with optional filtering by type,
+        status, and API source
+      parameters:
+      - default: 20
+        description: 'Number of items to return (default: 20, max: 100)'
+        in: query
+        maximum: 100
+        minimum: 1
+        name: limit
+        type: integer
+      - default: 0
+        description: 'Number of items to skip (default: 0)'
+        in: query
+        minimum: 0
+        name: offset
+        type: integer
+      - description: Filter by item type
+        in: query
+        name: item_type
+        type: string
+      - description: Filter by status
+        enum:
+        - pending
+        - completed
+        - failed
+        in: query
+        name: status
+        type: string
+      - description: Filter by API source
+        enum:
+        - pokemon
+        - openweather
+        in: query
+        name: api_source
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: List of items with total count
+          schema:
+            $ref: '#/definitions/dto.GetItemsResponse'
+        "400":
+          description: Invalid query parameters
+          schema:
+            $ref: '#/definitions/dto.ErrorResponse'
+        "500":
+          description: Internal server error
+          schema:
+            $ref: '#/definitions/dto.ErrorResponse'
+      summary: List items with pagination and filtering
+      tags:
+      - items
+  /items/{id}:
+    get:
+      consumes:
+      - application/json
+      description: Retrieve detailed information for a specific item by its ID
+      parameters:
+      - description: Item ID
+        in: path
+        minimum: 1
+        name: id
+        required: true
+        type: integer
+      - default: unknown
+        description: API source for the item
+        enum:
+        - pokemon
+        - openweather
+        - unknown
+        in: query
+        name: api_source
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: Item details
+          schema:
+            properties:
+              item:
+                $ref: '#/definitions/entity.Item'
+            type: object
+        "400":
+          description: Invalid ID format
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "404":
+          description: Item not found
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "500":
+          description: Internal server error
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      summary: Get item details by ID
+      tags:
+      - items
+  /sync:
+    post:
+      consumes:
+      - application/json
+      description: Fetch and synchronize items from external APIs (Pokemon, OpenWeather)
+        into the local database
+      parameters:
+      - description: Sync request parameters
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/dto.SyncItemsRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: Successfully synced items
+          schema:
+            $ref: '#/definitions/dto.SyncItemsResponse'
+        "400":
+          description: Invalid request or validation error
+          schema:
+            $ref: '#/definitions/dto.ErrorResponse'
+        "500":
+          description: Internal server error
+          schema:
+            $ref: '#/definitions/dto.ErrorResponse'
+        "502":
+          description: External API error
+          schema:
+            $ref: '#/definitions/dto.ErrorResponse'
+      summary: Sync items from external APIs
+      tags:
+      - sync
+schemes:
+- http
+- https
+swagger: "2.0"
+tags:
+- description: Health check endpoints
+  name: health
+- description: Item management endpoints
+  name: items
+- description: Data synchronization endpoints
+  name: sync

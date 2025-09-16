@@ -5,86 +5,41 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
-	"time"
 
 	"github.com/zainokta/item-sync/config"
 	"github.com/zainokta/item-sync/internal/item/entity"
+	"github.com/zainokta/item-sync/pkg/circuit"
+	"github.com/zainokta/item-sync/pkg/logger"
+	"github.com/zainokta/item-sync/pkg/retry"
 )
 
 type ExternalAPIClient interface {
 	Fetch(ctx context.Context, apiName string, operation string, params map[string]interface{}) ([]entity.ExternalItem, error)
 	FetchByID(ctx context.Context, apiName string, id int) (entity.ExternalItem, error)
+	FetchPaginated(ctx context.Context, apiName string, operation string, params map[string]interface{}) (*PaginatedResponse, error)
 }
 
 type BaseClient struct {
-	client *http.Client
+	client         *http.Client
+	retrier        *retry.Retrier
+	breakerManager *circuit.BreakerManager
+	logger         logger.Logger
 }
 
-func NewAPIClient(apiType string, config config.APIConfig) (ExternalAPIClient, error) {
+func NewAPIClient(apiType string, config config.APIConfig, retryConfig config.RetryConfig, logger logger.Logger) (ExternalAPIClient, error) {
+	retrier := retry.New(retryConfig, logger)
+	breakerManager := circuit.NewBreakerManager(retryConfig, logger)
+	
 	switch apiType {
 	case "pokemon":
-		return NewPokemonClient(config), nil
+		return NewPokemonClient(config, retrier, breakerManager, logger), nil
 	case "openweather":
-		return NewOpenWeatherClient(config), nil
+		return NewOpenWeatherClient(config, retrier, breakerManager, logger), nil
 	default:
 		return nil, fmt.Errorf("unsupported API type: %s", apiType)
 	}
 }
 
-func (bc *BaseClient) doRequestWithAuth(ctx context.Context, apiConfig config.ExternalAPIConfig, method, url string, result interface{}) error {
-	req, err := http.NewRequestWithContext(ctx, method, url, nil)
-	if err != nil {
-		return err
-	}
-
-	req.Header.Set("Accept", "application/json")
-
-	switch apiConfig.AuthType {
-	case "bearer":
-		if apiConfig.APIKey != "" {
-			req.Header.Set("Authorization", fmt.Sprintf("Bearer %s", apiConfig.APIKey))
-		}
-	case "api_key":
-		if apiConfig.APIKey != "" {
-			req.Header.Set("X-API-Key", apiConfig.APIKey)
-		}
-	}
-
-	for key, value := range apiConfig.Headers {
-		req.Header.Set(key, value)
-	}
-
-	var lastErr error
-	for i := 0; i < apiConfig.MaxRetries; i++ {
-		select {
-		case <-ctx.Done():
-			return ctx.Err()
-		default:
-		}
-
-		err := bc.doRequest(req, result)
-		if err == nil {
-			return nil
-		}
-
-		lastErr = err
-
-		if shouldNotRetry(err) {
-			break
-		}
-
-		if i < apiConfig.MaxRetries-1 {
-			select {
-			case <-time.After(apiConfig.RetryDelay):
-				continue
-			case <-ctx.Done():
-				return ctx.Err()
-			}
-		}
-	}
-
-	return lastErr
-}
 
 func (bc *BaseClient) doRequest(req *http.Request, result interface{}) error {
 	resp, err := bc.client.Do(req)

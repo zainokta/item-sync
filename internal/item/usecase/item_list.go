@@ -35,7 +35,6 @@ type ListItemsRequest struct {
 type ListItemsResponse struct {
 	Items      []entity.Item `json:"items"`
 	TotalCount int           `json:"total_count"`
-	FromCache  bool          `json:"from_cache"`
 }
 
 func (uc *ListItemsUseCase) Execute(ctx context.Context, req ListItemsRequest) (ListItemsResponse, error) {
@@ -51,7 +50,6 @@ func (uc *ListItemsUseCase) Execute(ctx context.Context, req ListItemsRequest) (
 	if cachedItems, err := uc.cache.GetItems(ctx, cacheKey); err == nil {
 		return ListItemsResponse{
 			Items:     cachedItems,
-			FromCache: true,
 		}, nil
 	}
 
@@ -80,6 +78,5 @@ func (uc *ListItemsUseCase) Execute(ctx context.Context, req ListItemsRequest) (
 	return ListItemsResponse{
 		Items:      items,
 		TotalCount: len(items),
-		FromCache:  false,
 	}, nil
 }

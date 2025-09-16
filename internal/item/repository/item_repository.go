@@ -2,8 +2,11 @@ package repository
 
 import (
 	"context"
+	"crypto/sha256"
 	"database/sql"
 	"encoding/json"
+	"fmt"
+	"time"
 
 	"github.com/zainokta/item-sync/internal/errors"
 	"github.com/zainokta/item-sync/internal/item/entity"
@@ -28,9 +31,9 @@ func NewItemRepository(db *sql.DB, logger logger.Logger) *ItemRepository {
 
 func (r *ItemRepository) Save(ctx context.Context, item entity.Item) error {
 	r.logger.Debug("Repository save item", "external_id", item.ExternalID, "api_source", item.APISource)
-	
+
 	query := `
-		INSERT INTO items (title, description, external_id, api_source, extend_info, synced_at, created_at, updated_at)
+		INSERT INTO items (title, description, external_id, api_source, extend_info, last_synced_at, created_at, updated_at)
 		VALUES (?, ?, ?, ?, ?, ?, ?, ?)
 	`
 
@@ -64,46 +67,11 @@ func (r *ItemRepository) Save(ctx context.Context, item entity.Item) error {
 	return nil
 }
 
-func (r *ItemRepository) Update(ctx context.Context, item entity.Item) error {
-	r.logger.Debug("Repository update item", "id", item.ID, "external_id", item.ExternalID, "api_source", item.APISource)
-	
-	query := `
-		UPDATE items 
-		SET title = ?, description = ?, external_id = ?, api_source = ?, extend_info = ?, 
-		    synced_at = ?, updated_at = ?
-		WHERE id = ?
-	`
-
-	var extendInfoJSON []byte
-	if item.ExtendInfo != nil {
-		var err error
-		extendInfoJSON, err = json.Marshal(item.ExtendInfo)
-		if err != nil {
-			r.logger.Error("Repository marshal extend_info failed", "id", item.ID, "error", err.Error())
-			return errors.DatabaseError(err)
-		}
-	}
-
-	result, err := r.db.ExecContext(ctx, query,
-		item.Title, item.Description, item.ExternalID, item.APISource,
-		string(extendInfoJSON), item.SyncedAt, item.UpdatedAt, item.ID,
-	)
-
-	if err != nil {
-		r.logger.Error("Repository update failed", "id", item.ID, "error", err.Error())
-		return errors.DatabaseError(err)
-	}
-
-	rowsAffected, _ := result.RowsAffected()
-	r.logger.Info("Repository update success", "id", item.ID, "rows_affected", rowsAffected)
-	return nil
-}
-
 func (r *ItemRepository) FindByID(ctx context.Context, id int) (entity.Item, error) {
 	r.logger.Debug("Repository find by ID", "id", id)
-	
+
 	query := `
-		SELECT id, title, description, external_id, api_source, extend_info, synced_at, created_at, updated_at
+		SELECT id, title, description, external_id, api_source, extend_info, last_synced_at, created_at, updated_at
 		FROM items 
 		WHERE id = ?
 	`
@@ -136,48 +104,11 @@ func (r *ItemRepository) FindByID(ctx context.Context, id int) (entity.Item, err
 	return item, nil
 }
 
-func (r *ItemRepository) FindByExternalID(ctx context.Context, externalID int) (entity.Item, error) {
-	r.logger.Debug("Repository find by external ID", "external_id", externalID)
-	
-	query := `
-		SELECT id, title, description, external_id, api_source, extend_info, synced_at, created_at, updated_at
-		FROM items 
-		WHERE external_id = ?
-	`
-
-	var item entity.Item
-	var extendInfoJSON string
-
-	err := r.db.QueryRowContext(ctx, query, externalID).Scan(
-		&item.ID, &item.Title, &item.Description, &item.ExternalID, &item.APISource,
-		&extendInfoJSON, &item.SyncedAt, &item.CreatedAt, &item.UpdatedAt,
-	)
-
-	if err != nil {
-		if err == sql.ErrNoRows {
-			r.logger.Debug("Repository item not found by external ID", "external_id", externalID)
-			return entity.Item{}, errors.ItemNotFound()
-		}
-		r.logger.Error("Repository find by external ID failed", "external_id", externalID, "error", err.Error())
-		return entity.Item{}, errors.DatabaseError(err)
-	}
-
-	if extendInfoJSON != "" {
-		if err := json.Unmarshal([]byte(extendInfoJSON), &item.ExtendInfo); err != nil {
-			r.logger.Error("Repository unmarshal extend_info failed", "external_id", externalID, "error", err.Error())
-			return entity.Item{}, errors.DatabaseError(err)
-		}
-	}
-
-	r.logger.Debug("Repository find by external ID success", "id", item.ID, "external_id", externalID)
-	return item, nil
-}
-
 func (r *ItemRepository) FindAll(ctx context.Context, limit, offset int) ([]entity.Item, error) {
 	r.logger.Debug("Repository find all", "limit", limit, "offset", offset)
-	
+
 	query := `
-		SELECT id, title, description, external_id, api_source, extend_info, synced_at, created_at, updated_at
+		SELECT id, title, description, external_id, api_source, extend_info, last_synced_at, created_at, updated_at
 		FROM items 
 		ORDER BY created_at DESC
 		LIMIT ? OFFSET ?
@@ -220,9 +151,9 @@ func (r *ItemRepository) FindAll(ctx context.Context, limit, offset int) ([]enti
 
 func (r *ItemRepository) FindByAPISource(ctx context.Context, apiSource string, limit, offset int) ([]entity.Item, error) {
 	r.logger.Debug("Repository find by API source", "api_source", apiSource, "limit", limit, "offset", offset)
-	
+
 	query := `
-		SELECT id, title, description, external_id, api_source, extend_info, synced_at, created_at, updated_at
+		SELECT id, title, description, external_id, api_source, extend_info, last_synced_at, created_at, updated_at
 		FROM items 
 		WHERE api_source = ?
 		ORDER BY created_at DESC
@@ -266,9 +197,9 @@ func (r *ItemRepository) FindByAPISource(ctx context.Context, apiSource string, 
 
 func (r *ItemRepository) FindByStatus(ctx context.Context, status string, limit, offset int) ([]entity.Item, error) {
 	r.logger.Debug("Repository find by status", "status", status, "limit", limit, "offset", offset)
-	
+
 	query := `
-		SELECT id, title, description, external_id, api_source, extend_info, synced_at, created_at, updated_at
+		SELECT id, title, description, external_id, api_source, extend_info, last_synced_at, created_at, updated_at
 		FROM items 
 		WHERE JSON_EXTRACT(extend_info, '$.status') = ?
 		ORDER BY created_at DESC
@@ -313,4 +244,59 @@ func (r *ItemRepository) FindByStatus(ctx context.Context, status string, limit,
 func (r *ItemRepository) FindByType(ctx context.Context, itemType string, limit, offset int) ([]entity.Item, error) {
 	r.logger.Debug("Repository find by type (deprecated, using API source)", "item_type", itemType)
 	return r.FindByAPISource(ctx, itemType, limit, offset)
+}
+
+func (r *ItemRepository) UpsertWithHash(ctx context.Context, apiSource string, externalItem entity.ExternalItem) error {
+	now := time.Now()
+
+	extendInfoJSON, err := json.Marshal(externalItem.ExtendInfo)
+	if err != nil {
+		r.logger.Error("Repository marshal extend_info failed", "external_id", externalItem.ID, "error", err.Error())
+		return errors.DatabaseError(err)
+	}
+
+	contentHash := r.calculateContentHash(externalItem.Title, string(extendInfoJSON))
+
+	query := `
+		INSERT INTO items (title, description, external_id, api_source, extend_info, content_hash, last_synced_at, created_at, updated_at, sync_attempts)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 1)
+		ON DUPLICATE KEY UPDATE
+			title = VALUES(title),
+			description = VALUES(description),
+			extend_info = CASE 
+				WHEN content_hash != VALUES(content_hash) THEN VALUES(extend_info)
+				ELSE extend_info
+			END,
+			content_hash = VALUES(content_hash),
+			last_synced_at = VALUES(last_synced_at),
+			updated_at = VALUES(updated_at),
+			sync_attempts = sync_attempts + 1,
+			last_sync_error = NULL
+	`
+
+	_, err = r.db.ExecContext(ctx, query,
+		externalItem.Title,
+		"", // description - might be extracted from extend_info if needed
+		externalItem.ID,
+		apiSource,
+		string(extendInfoJSON),
+		contentHash,
+		now,
+		now,
+		now,
+	)
+
+	if err != nil {
+		r.logger.Error("Repository upsert with hash failed", "external_id", externalItem.ID, "api_source", apiSource, "error", err.Error())
+		return errors.DatabaseError(err)
+	}
+
+	r.logger.Debug("Repository upsert with hash success", "external_id", externalItem.ID, "api_source", apiSource, "content_hash", contentHash)
+	return nil
+}
+
+func (r *ItemRepository) calculateContentHash(title string, extendInfoJSON string) string {
+	content := fmt.Sprintf("%s:%s", title, extendInfoJSON)
+	hash := sha256.Sum256([]byte(content))
+	return fmt.Sprintf("%x", hash)
 }

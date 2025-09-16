@@ -31,12 +31,12 @@ func NewItemCache(client *redis.Client, ttl time.Duration, logger logger.Logger)
 
 func (c *ItemCache) GetItems(ctx context.Context, key string) ([]entity.Item, error) {
 	c.logger.Debug("Cache get items", "key", key)
-	
+
 	data, err := c.client.Get(ctx, key).Bytes()
 	if err != nil {
 		if err == redis.Nil {
 			c.logger.Debug("Cache miss", "key", key)
-			return nil, nil 
+			return nil, redis.Nil
 		}
 		c.logger.Error("Cache get items failed", "key", key, "error", err.Error())
 		return nil, errors.CacheFailed(err)
@@ -54,7 +54,7 @@ func (c *ItemCache) GetItems(ctx context.Context, key string) ([]entity.Item, er
 
 func (c *ItemCache) SetItems(ctx context.Context, key string, items []entity.Item, ttl time.Duration) error {
 	c.logger.Debug("Cache set items", "key", key, "items_count", len(items), "ttl", ttl)
-	
+
 	data, err := json.Marshal(items)
 	if err != nil {
 		c.logger.Error("Cache marshal failed", "key", key, "error", err.Error())
@@ -77,7 +77,7 @@ func (c *ItemCache) SetItems(ctx context.Context, key string, items []entity.Ite
 
 func (c *ItemCache) Invalidate(ctx context.Context, key string) error {
 	c.logger.Debug("Cache invalidate", "key", key)
-	
+
 	if err := c.client.Del(ctx, key).Err(); err != nil {
 		c.logger.Error("Cache invalidate failed", "key", key, "error", err.Error())
 		return errors.CacheFailed(err)
@@ -103,12 +103,12 @@ func (c *ItemCache) Invalidate(ctx context.Context, key string) error {
 
 func (c *ItemCache) GetItem(ctx context.Context, key string) (entity.Item, error) {
 	c.logger.Debug("Cache get item", "key", key)
-	
+
 	data, err := c.client.Get(ctx, key).Bytes()
 	if err != nil {
 		if err == redis.Nil {
 			c.logger.Debug("Cache miss", "key", key)
-			return entity.Item{}, nil
+			return entity.Item{}, redis.Nil
 		}
 		c.logger.Error("Cache get item failed", "key", key, "error", err.Error())
 		return entity.Item{}, errors.CacheFailed(err)
@@ -126,7 +126,7 @@ func (c *ItemCache) GetItem(ctx context.Context, key string) (entity.Item, error
 
 func (c *ItemCache) SetItem(ctx context.Context, key string, item entity.Item, ttl time.Duration) error {
 	c.logger.Debug("Cache set item", "key", key, "item_id", item.ID, "ttl", ttl)
-	
+
 	data, err := json.Marshal(item)
 	if err != nil {
 		c.logger.Error("Cache marshal item failed", "key", key, "item_id", item.ID, "error", err.Error())

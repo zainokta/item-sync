@@ -15,12 +15,15 @@ type Config struct {
 	Environment string `env:"ENV" envDefault:"development"`
 	LogLevel    string `env:"LOG_LEVEL" envDefault:"info"`
 
-	Server   ServerConfig   `envPrefix:"SERVER_"`
-	CORS     CORSConfig     `envPrefix:"CORS_"`
-	Database DatabaseConfig `envPrefix:"DATABASE_"`
-	Redis    RedisConfig    `envPrefix:"REDIS_"`
-	API      APIConfig      `envPrefix:"API_"`
-	Cache    CacheConfig    `envPrefix:"CACHE_"`
+	Server    ServerConfig    `envPrefix:"SERVER_"`
+	CORS      CORSConfig      `envPrefix:"CORS_"`
+	Database  DatabaseConfig  `envPrefix:"DATABASE_"`
+	Redis     RedisConfig     `envPrefix:"REDIS_"`
+	API       APIConfig       `envPrefix:"API_"`
+	Cache     CacheConfig     `envPrefix:"CACHE_"`
+	Worker    WorkerConfig    `envPrefix:"WORKER_"`
+	Retry     RetryConfig     `envPrefix:"RETRY_"`
+	Migration MigrationConfig `envPrefix:"MIGRATION_"`
 }
 
 type ServerConfig struct {
@@ -45,7 +48,7 @@ type CORSConfig struct {
 type DatabaseConfig struct {
 	Host            string        `env:"HOST" envDefault:"localhost"`
 	Port            int           `env:"PORT" envDefault:"3306"`
-	User            string        `env:"USER" envDefault:"root"`
+	User            string        `env:"USER" envDefault:"appuser"`
 	Password        string        `env:"PASSWORD"`
 	Database        string        `env:"DATABASE" envDefault:"item_sync"`
 	MaxOpenConns    int           `env:"MAX_OPEN_CONNS" envDefault:"25"`
@@ -58,20 +61,6 @@ type RedisConfig struct {
 	Port     int    `env:"PORT" envDefault:"6379"`
 	Password string `env:"PASSWORD"`
 	DB       int    `env:"DB" envDefault:"0"`
-}
-
-// ExternalAPIConfig represents configuration for a generic external API
-type ExternalAPIConfig struct {
-	BaseURL    string        `env:"BASE_URL" envDefault:""`
-	Timeout    time.Duration `env:"TIMEOUT" envDefault:"30s"`
-	MaxRetries int           `env:"MAX_RETRIES" envDefault:"3"`
-	RetryDelay time.Duration `env:"RETRY_DELAY" envDefault:"1s"`
-	Headers    map[string]string
-	Enable     bool              `env:"ENABLE" envDefault:"false"`
-	APIKey     string            `env:"API_KEY"`
-	AuthType   string            `env:"AUTH_TYPE" envDefault:"none"` // none, bearer, basic, api_key
-	ItemType   string            `env:"ITEM_TYPE" envDefault:"custom"`
-	Endpoints  map[string]string // API endpoints for different operations
 }
 
 type APIConfig struct {
@@ -87,14 +76,36 @@ type APIConfig struct {
 	DisableCompression  bool          `env:"DISABLE_COMPRESSION" envDefault:"false"`
 	MaxIdleConnsPerHost int           `env:"MAX_IDLE_CONNS_PER_HOST" envDefault:"10"`
 
-	// Generic External APIs
-	ExternalAPIs map[string]ExternalAPIConfig
+	// OpenWeather API Key (when using openweather API type)
+	OpenWeatherAPIKey string `env:"OPENWEATHER_API_KEY"`
 }
 
 type CacheConfig struct {
 	DefaultTTL     time.Duration `env:"DEFAULT_TTL" envDefault:"5m"`
 	ItemsCacheTTL  time.Duration `env:"ITEMS_CACHE_TTL" envDefault:"10m"`
 	StatusCacheTTL time.Duration `env:"STATUS_CACHE_TTL" envDefault:"5m"`
+}
+
+type WorkerConfig struct {
+	Enabled      bool          `env:"ENABLED" envDefault:"true"`
+	SyncInterval time.Duration `env:"SYNC_INTERVAL" envDefault:"15m"`
+	JobTimeout   time.Duration `env:"JOB_TIMEOUT" envDefault:"10m"`
+	MaxWorkers   int           `env:"MAX_WORKERS" envDefault:"5"`
+}
+
+type RetryConfig struct {
+	MaxRetries       int           `env:"MAX_RETRIES" envDefault:"5"`
+	InitialDelay     time.Duration `env:"INITIAL_DELAY" envDefault:"1s"`
+	MaxDelay         time.Duration `env:"MAX_DELAY" envDefault:"30s"`
+	BackoffFactor    float64       `env:"BACKOFF_FACTOR" envDefault:"2.0"`
+	CircuitThreshold int           `env:"CIRCUIT_THRESHOLD" envDefault:"5"`
+	CircuitTimeout   time.Duration `env:"CIRCUIT_TIMEOUT" envDefault:"60s"`
+}
+
+type MigrationConfig struct {
+	Enabled        bool   `env:"ENABLED" envDefault:"true"`
+	MigrationsPath string `env:"MIGRATIONS_PATH" envDefault:"./migrations"`
+	FailOnError    bool   `env:"FAIL_ON_ERROR" envDefault:"true"`
 }
 
 func LoadConfig() (*Config, error) {
@@ -106,19 +117,6 @@ func LoadConfig() (*Config, error) {
 	cfg := &Config{}
 	if err := env.Parse(cfg); err != nil {
 		return nil, fmt.Errorf("failed to parse environment variables: %w", err)
-	}
-
-	// Initialize ExternalAPIs map if nil
-	if cfg.API.ExternalAPIs == nil {
-		cfg.API.ExternalAPIs = make(map[string]ExternalAPIConfig)
-	}
-
-	// Initialize FieldMapping and Endpoints maps for each API
-	for name, apiConfig := range cfg.API.ExternalAPIs {
-		if apiConfig.Endpoints == nil {
-			apiConfig.Endpoints = make(map[string]string)
-		}
-		cfg.API.ExternalAPIs[name] = apiConfig
 	}
 
 	return cfg, nil
@@ -166,18 +164,4 @@ func parseStringSlice(s string) []string {
 	}
 
 	return result
-}
-
-// GetExternalAPIConfig returns the configuration for a specific external API
-func (c *APIConfig) GetExternalAPIConfig(name string) (ExternalAPIConfig, bool) {
-	config, exists := c.ExternalAPIs[name]
-	return config, exists
-}
-
-// AddExternalAPIConfig adds or updates an external API configuration
-func (c *APIConfig) AddExternalAPIConfig(name string, config ExternalAPIConfig) {
-	if c.ExternalAPIs == nil {
-		c.ExternalAPIs = make(map[string]ExternalAPIConfig)
-	}
-	c.ExternalAPIs[name] = config
 }

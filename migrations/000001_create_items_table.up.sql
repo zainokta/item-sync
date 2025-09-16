@@ -1,4 +1,3 @@
--- Create items table for storing data from various APIs
 CREATE TABLE IF NOT EXISTS items (
     id INT AUTO_INCREMENT PRIMARY KEY,
     external_id INT NOT NULL,

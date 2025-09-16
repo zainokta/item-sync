@@ -40,34 +40,40 @@ func (p *PokemonSyncStrategy) FetchAllItems(ctx context.Context, apiClient Exter
 			"limit":  limit,
 		}
 		
-		items, err := apiClient.Fetch(ctx, request.APISource, request.Operation, params)
+		response, err := apiClient.FetchPaginated(ctx, request.APISource, request.Operation, params)
 		if err != nil {
 			return allItems, err
 		}
 		
-		if len(items) == 0 {
+		if len(response.Items) == 0 {
 			break
 		}
 		
-		allItems = append(allItems, items...)
+		allItems = append(allItems, response.Items...)
 		
-		nextURL, hasNext := p.extractNextURL(items)
-		if !hasNext {
+		// Use structured pagination metadata
+		if response.Pagination == nil || !response.Pagination.HasNext {
 			break
 		}
 		
-		newOffset, newLimit, err := p.parseNextURL(nextURL)
-		if err != nil {
-			if p.logger != nil {
-				p.logger.Warn("Failed to parse next URL, falling back to increment", "url", nextURL, "error", err)
+		// Parse next URL to get new offset and limit
+		if response.Pagination.Next != "" {
+			newOffset, newLimit, err := p.parseNextURL(response.Pagination.Next)
+			if err != nil {
+				if p.logger != nil {
+					p.logger.Warn("Failed to parse next URL, falling back to increment", "url", response.Pagination.Next, "error", err)
+				}
+				offset += limit
+			} else {
+				offset = newOffset
+				limit = newLimit
 			}
-			offset += limit
 		} else {
-			offset = newOffset
-			limit = newLimit
+			offset += limit
 		}
 		
-		if len(items) < limit {
+		// Safety check to prevent infinite loops
+		if len(response.Items) < limit {
 			break
 		}
 	}

@@ -8,6 +8,9 @@ import (
 	"github.com/zainokta/item-sync/config"
 	"github.com/zainokta/item-sync/internal/errors"
 	"github.com/zainokta/item-sync/internal/item/entity"
+	"github.com/zainokta/item-sync/pkg/circuit"
+	"github.com/zainokta/item-sync/pkg/logger"
+	"github.com/zainokta/item-sync/pkg/retry"
 )
 
 type WeatherResponse struct {
@@ -24,50 +27,58 @@ type WeatherResponse struct {
 }
 
 type OpenWeatherClient struct {
-	client       *http.Client
-	externalAPIs map[string]config.ExternalAPIConfig
+	*BaseClient
+	apiKey string
 }
 
-func NewOpenWeatherClient(config config.APIConfig) *OpenWeatherClient {
+func NewOpenWeatherClient(config config.APIConfig, retrier *retry.Retrier, breakerManager *circuit.BreakerManager, logger logger.Logger) *OpenWeatherClient {
 	return &OpenWeatherClient{
-		client: &http.Client{
-			Timeout: config.Timeout,
-			Transport: &http.Transport{
-				MaxIdleConns:        config.MaxIdleConns,
-				IdleConnTimeout:     config.IdleConnTimeout,
-				DisableCompression:  config.DisableCompression,
-				MaxIdleConnsPerHost: config.MaxIdleConnsPerHost,
+		BaseClient: &BaseClient{
+			client: &http.Client{
+				Timeout: config.Timeout,
+				Transport: &http.Transport{
+					MaxIdleConns:        config.MaxIdleConns,
+					IdleConnTimeout:     config.IdleConnTimeout,
+					DisableCompression:  config.DisableCompression,
+					MaxIdleConnsPerHost: config.MaxIdleConnsPerHost,
+				},
 			},
+			retrier:        retrier,
+			breakerManager: breakerManager,
+			logger:         logger,
 		},
-		externalAPIs: config.ExternalAPIs,
+		apiKey: config.OpenWeatherAPIKey,
 	}
 }
 
 func (c *OpenWeatherClient) Fetch(ctx context.Context, apiName string, operation string, params map[string]interface{}) ([]entity.ExternalItem, error) {
-	apiConfig, exists := c.externalAPIs[apiName]
-	if !exists {
-		return nil, errors.ExternalAPIFailed(fmt.Errorf("API '%s' not configured", apiName))
+	// Check if API key is configured
+	if c.apiKey == "" {
+		return nil, errors.ExternalAPIFailed(fmt.Errorf("OpenWeather API key not configured"))
 	}
 
-	if !apiConfig.Enable {
-		return nil, errors.ExternalAPIFailed(fmt.Errorf("API '%s' is disabled", apiName))
+	// Hardcoded OpenWeather API configuration
+	baseURL := "https://api.openweathermap.org/data/2.5"
+	
+	var endpoint string
+	switch operation {
+	case "weather":
+		endpoint = "/weather"
+	default:
+		return nil, errors.ExternalAPIFailed(fmt.Errorf("unsupported operation '%s' for OpenWeather API", operation))
 	}
 
-	endpoint, exists := apiConfig.Endpoints[operation]
-	if !exists {
-		return nil, errors.ExternalAPIFailed(fmt.Errorf("endpoint '%s' not configured for API '%s'", operation, apiName))
-	}
+	url := fmt.Sprintf("%s%s", baseURL, endpoint)
 
-	url := fmt.Sprintf("%s%s", apiConfig.BaseURL, endpoint)
-
+	// Handle parameters
 	if len(params) > 0 {
 		if city, ok := params["city"].(string); ok {
-			url = fmt.Sprintf("%s?q=%s&appid=%s", url, city, apiConfig.APIKey)
+			url = fmt.Sprintf("%s?q=%s&appid=%s&units=metric", url, city, c.apiKey)
 		}
 	}
 
 	var response WeatherResponse
-	err := c.doRequestWithAuth(ctx, apiConfig, http.MethodGet, url, &response)
+	err := c.doRequest(ctx, http.MethodGet, url, &response)
 	if err != nil {
 		return nil, errors.ExternalAPIFailed(err)
 	}
@@ -76,17 +87,9 @@ func (c *OpenWeatherClient) Fetch(ctx context.Context, apiName string, operation
 }
 
 func (c *OpenWeatherClient) FetchByID(ctx context.Context, apiName string, id int) (entity.ExternalItem, error) {
-	params := map[string]interface{}{"id": id}
-	items, err := c.Fetch(ctx, apiName, "get", params)
-	if err != nil {
-		return entity.ExternalItem{}, err
-	}
-
-	if len(items) == 0 {
-		return entity.ExternalItem{}, errors.ExternalAPIFailed(fmt.Errorf("weather data not found"))
-	}
-
-	return items[0], nil
+	// OpenWeather API doesn't support fetch by ID in the same way
+	// This method is kept for interface compatibility but returns an error
+	return entity.ExternalItem{}, errors.ExternalAPIFailed(fmt.Errorf("FetchByID not supported for OpenWeather API"))
 }
 
 func (c *OpenWeatherClient) transformWeatherResponse(response WeatherResponse) []entity.ExternalItem {
@@ -111,7 +114,48 @@ func (c *OpenWeatherClient) transformWeatherResponse(response WeatherResponse) [
 	return items
 }
 
-func (c *OpenWeatherClient) doRequestWithAuth(ctx context.Context, apiConfig config.ExternalAPIConfig, method, url string, result interface{}) error {
-	baseClient := &BaseClient{client: c.client}
-	return baseClient.doRequestWithAuth(ctx, apiConfig, method, url, result)
+func (c *OpenWeatherClient) FetchPaginated(ctx context.Context, apiName string, operation string, params map[string]interface{}) (*PaginatedResponse, error) {
+	// Check if API key is configured
+	if c.apiKey == "" {
+		return nil, errors.ExternalAPIFailed(fmt.Errorf("OpenWeather API key not configured"))
+	}
+
+	// OpenWeather API doesn't support pagination like Pokemon API
+	// It typically returns single weather data per city
+	// This method is kept for interface compatibility
+	
+	items, err := c.Fetch(ctx, apiName, operation, params)
+	if err != nil {
+		return nil, err
+	}
+
+	// OpenWeather returns single item, so no pagination metadata
+	pagination := NewPaginationMetadata(len(items), "", "")
+	
+	return NewPaginatedResponse(items, pagination), nil
+}
+
+func (c *OpenWeatherClient) doRequest(ctx context.Context, method, url string, result interface{}) error {
+	breaker := c.breakerManager.GetBreaker("openweather-api")
+	
+	return breaker.Execute(func() error {
+		return c.retrier.Execute(ctx, func() error {
+			req, err := http.NewRequestWithContext(ctx, method, url, nil)
+			if err != nil {
+				return retry.NewNonRetryableError(err)
+			}
+
+			req.Header.Set("Accept", "application/json")
+
+			err = c.BaseClient.doRequest(req, result)
+			if err != nil {
+				if shouldNotRetry(err) {
+					return retry.NewNonRetryableError(err)
+				}
+				return retry.NewRetryableError(err)
+			}
+			
+			return nil
+		})
+	})
 }

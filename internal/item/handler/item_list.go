@@ -24,6 +24,21 @@ func NewListHandler(listUseCase *usecase.ListItemsUseCase, logger logger.Logger)
 	}
 }
 
+// ListItems godoc
+// @Summary      List items with pagination and filtering
+// @Description  Retrieve a paginated list of items with optional filtering by type, status, and API source
+// @Tags         items
+// @Accept       json
+// @Produce      json
+// @Param        limit query int false "Number of items to return (default: 20, max: 100)" minimum(1) maximum(100) default(20)
+// @Param        offset query int false "Number of items to skip (default: 0)" minimum(0) default(0)
+// @Param        item_type query string false "Filter by item type"
+// @Param        status query string false "Filter by status" Enums(pending, completed, failed)
+// @Param        api_source query string false "Filter by API source" Enums(pokemon, openweather)
+// @Success      200 {object} dto.GetItemsResponse "List of items with total count"
+// @Failure      400 {object} dto.ErrorResponse "Invalid query parameters"
+// @Failure      500 {object} dto.ErrorResponse "Internal server error"
+// @Router       /items [get]
 func (h *ListHandler) ListItems(c echo.Context) error {
 	limit, _ := strconv.Atoi(c.QueryParam("limit"))
 	if limit <= 0 {

@@ -5,18 +5,18 @@ import (
 	"time"
 
 	"github.com/zainokta/item-sync/internal/item/entity"
+	"github.com/zainokta/item-sync/pkg/api"
 )
 
 // ItemSaver interface for saving items
 type ItemSaver interface {
 	Save(ctx context.Context, item entity.Item) error
-	Update(ctx context.Context, item entity.Item) error
+	UpsertWithHash(ctx context.Context, apiSource string, externalItem entity.ExternalItem) error
 }
 
 // ItemFinder interface for finding items
 type ItemFinder interface {
 	FindByID(ctx context.Context, id int) (entity.Item, error)
-	FindByExternalID(ctx context.Context, externalID int) (entity.Item, error)
 	FindAll(ctx context.Context, limit, offset int) ([]entity.Item, error)
 	FindByStatus(ctx context.Context, status string, limit, offset int) ([]entity.Item, error)
 	FindByType(ctx context.Context, itemType string, limit, offset int) ([]entity.Item, error)
@@ -36,6 +36,7 @@ type ItemCache interface {
 type ExternalAPIClient interface {
 	Fetch(ctx context.Context, apiName string, operation string, params map[string]interface{}) ([]entity.ExternalItem, error)
 	FetchByID(ctx context.Context, apiName string, id int) (entity.ExternalItem, error)
+	FetchPaginated(ctx context.Context, apiName string, operation string, params map[string]interface{}) (*api.PaginatedResponse, error)
 }
 
 // ItemRepository interface combining saver and finder

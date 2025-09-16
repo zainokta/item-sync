@@ -6,6 +6,7 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/zainokta/item-sync/internal/item/entity"
+	"github.com/zainokta/item-sync/pkg/api"
 )
 
 type mockPokemonAPIClient struct {
@@ -21,21 +22,34 @@ func (m *mockPokemonAPIClient) Fetch(ctx context.Context, apiName string, operat
 	page := m.pages[m.calls]
 	m.calls++
 	
-	if len(page) > 0 && m.calls < len(m.pages) {
-		if page[0].ExtendInfo == nil {
-			page[0].ExtendInfo = make(map[string]interface{})
-		}
-		
-		offset := m.calls * 2
-		nextURL := "https://pokeapi.co/api/v2/pokemon?offset=" + string(rune('0'+offset)) + "&limit=2"
-		
-		rawData := map[string]interface{}{
-			"next": nextURL,
-		}
-		page[0].ExtendInfo["raw_data"] = rawData
+	return page, nil
+}
+
+func (m *mockPokemonAPIClient) FetchPaginated(ctx context.Context, apiName string, operation string, params map[string]interface{}) (*api.PaginatedResponse, error) {
+	if m.calls >= len(m.pages) {
+		return &api.PaginatedResponse{
+			Items:      []entity.ExternalItem{},
+			Pagination: api.NewPaginationMetadata(0, "", ""),
+		}, nil
 	}
 	
-	return page, nil
+	page := m.pages[m.calls]
+	m.calls++
+	
+	var pagination *api.PaginationMetadata
+	if m.calls < len(m.pages) {
+		// Has next page
+		nextURL := "https://pokeapi.co/api/v2/pokemon?offset=20&limit=2"
+		pagination = api.NewPaginationMetadata(1000, nextURL, "")
+	} else {
+		// Last page
+		pagination = api.NewPaginationMetadata(1000, "", "")
+	}
+	
+	return &api.PaginatedResponse{
+		Items:      page,
+		Pagination: pagination,
+	}, nil
 }
 
 func (m *mockPokemonAPIClient) FetchByID(ctx context.Context, apiName string, id int) (entity.ExternalItem, error) {

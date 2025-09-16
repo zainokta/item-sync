@@ -2,8 +2,6 @@ package usecase
 
 import (
 	"context"
-	"errors"
-	"time"
 
 	pkgErrors "github.com/zainokta/item-sync/internal/errors"
 	"github.com/zainokta/item-sync/internal/item/entity"
@@ -65,43 +63,15 @@ func (uc *SyncItemsUseCase) Execute(ctx context.Context, req SyncItemsRequest) (
 	}
 
 	for _, externalItem := range externalItems {
-		item := entity.NewItem()
-		item.FromAPIResponse(externalItem)
-
-		if err := item.Validate(); err != nil {
+		if err := uc.itemRepo.UpsertWithHash(ctx, req.APISource, externalItem); err != nil {
+			uc.logger.Error("Failed to upsert item with hash", "external_id", externalItem.ID, "api_source", req.APISource, "error", err)
 			response.FailedCount++
 			response.Errors = append(response.Errors, err.Error())
 			continue
 		}
 
-		existingItem, err := uc.itemRepo.FindByExternalID(ctx, externalItem.ID)
-		if err != nil {
-			if errors.Is(err, pkgErrors.ItemNotFound()) {
-				if err := uc.itemRepo.Save(ctx, item); err != nil {
-					response.FailedCount++
-					response.Errors = append(response.Errors, err.Error())
-					continue
-				}
-			} else {
-				response.FailedCount++
-				response.Errors = append(response.Errors, err.Error())
-				continue
-			}
-		} else {
-			if !req.ForceSync {
-				continue
-			}
-
-			item.ID = existingItem.ID
-			item.CreatedAt = existingItem.CreatedAt
-			item.UpdatedAt = time.Now()
-			if err := uc.itemRepo.Update(ctx, item); err != nil {
-				response.FailedCount++
-				response.Errors = append(response.Errors, err.Error())
-				continue
-			}
-		}
-
+		item := entity.NewItem()
+		item.FromAPIResponse(req.APISource, externalItem)
 		response.SuccessCount++
 		response.Items = append(response.Items, item)
 	}
