@@ -239,5 +239,4 @@ go test ./...
 1. Single Instance: No distributed coordination (acceptable for initial deployment)
 2. In-Memory Circuit Breaker: State lost on restart (vs. Redis-backed state)
 3. Hardcoded API Config: External APIs configured in code (vs. dynamic configuration)
-4. Basic Error Handling: Simple retry logic (vs. sophisticated backoff strategies)
-5. Manual Scaling: Requires configuration changes (vs. auto-scaling)
+4. Manual Scaling: Requires configuration changes (vs. auto-scaling)
