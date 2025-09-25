@@ -45,7 +45,6 @@ services:
       - REDIS_DB=${REDIS_DB:-0}
       
       # API Configuration (Pokemon as default)
-      - API_API_TYPE=${API_API_TYPE:-pokemon}
       - API_TIMEOUT=${API_TIMEOUT:-30s}
       - API_MAX_RETRIES=${API_MAX_RETRIES:-3}
       - API_RETRY_DELAY=${API_RETRY_DELAY:-1s}
@@ -97,7 +96,6 @@ services:
       - "${DATABASE_PORT:-3306}:3306"
     volumes:
       - mysql_data:/var/lib/mysql
-      - ./migrations:/docker-entrypoint-initdb.d
     healthcheck:
       test: ["CMD", "mysqladmin", "ping", "-h", "localhost"]
       timeout: 20s

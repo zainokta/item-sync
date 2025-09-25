@@ -6,16 +6,15 @@ import (
 
 // SyncItemsResponse represents the response from syncing items
 type SyncItemsResponse struct {
-	SuccessCount int            `json:"success_count" example:"15" description:"Number of items successfully synced"`
-	FailedCount  int            `json:"failed_count" example:"2" description:"Number of items that failed to sync"`
-	Items        []entity.Item  `json:"items,omitempty" description:"List of synced items (optional)"`
-	Errors       []string       `json:"errors,omitempty" description:"List of error messages for failed items"`
+	Errors  []string `json:"errors,omitempty" description:"List of error messages for failed items"`
+	Status  string   `json:"status"`
+	Message string   `json:"message"`
 }
 
 // GetItemsResponse represents the response from listing items
 type GetItemsResponse struct {
 	Items []entity.Item `json:"items" description:"List of items"`
-	Total int            `json:"total" example:"150" description:"Total number of items matching the query"`
+	Total int           `json:"total" example:"150" description:"Total number of items matching the query"`
 }
 
 // ErrorResponse represents an error response

@@ -8,7 +8,6 @@ import (
 	"github.com/zainokta/item-sync/config"
 	"github.com/zainokta/item-sync/internal/errors"
 	"github.com/zainokta/item-sync/internal/item/entity"
-	"github.com/zainokta/item-sync/pkg/circuit"
 	"github.com/zainokta/item-sync/pkg/logger"
 	"github.com/zainokta/item-sync/pkg/retry"
 )
@@ -31,23 +30,10 @@ type OpenWeatherClient struct {
 	apiKey string
 }
 
-func NewOpenWeatherClient(config config.APIConfig, retrier *retry.Retrier, breakerManager *circuit.BreakerManager, logger logger.Logger) *OpenWeatherClient {
+func NewOpenWeatherClient(config config.APIConfig, retryConfig config.RetryConfig, logger logger.Logger) *OpenWeatherClient {
 	return &OpenWeatherClient{
-		BaseClient: &BaseClient{
-			client: &http.Client{
-				Timeout: config.Timeout,
-				Transport: &http.Transport{
-					MaxIdleConns:        config.MaxIdleConns,
-					IdleConnTimeout:     config.IdleConnTimeout,
-					DisableCompression:  config.DisableCompression,
-					MaxIdleConnsPerHost: config.MaxIdleConnsPerHost,
-				},
-			},
-			retrier:        retrier,
-			breakerManager: breakerManager,
-			logger:         logger,
-		},
-		apiKey: config.OpenWeatherAPIKey,
+		BaseClient: getBaseClient(config, retryConfig, logger),
+		apiKey:     config.OpenWeatherAPIKey,
 	}
 }
 
@@ -59,7 +45,7 @@ func (c *OpenWeatherClient) Fetch(ctx context.Context, apiName string, operation
 
 	// Hardcoded OpenWeather API configuration
 	baseURL := "https://api.openweathermap.org/data/2.5"
-	
+
 	var endpoint string
 	switch operation {
 	case "weather":
@@ -123,7 +109,7 @@ func (c *OpenWeatherClient) FetchPaginated(ctx context.Context, apiName string, 
 	// OpenWeather API doesn't support pagination like Pokemon API
 	// It typically returns single weather data per city
 	// This method is kept for interface compatibility
-	
+
 	items, err := c.Fetch(ctx, apiName, operation, params)
 	if err != nil {
 		return nil, err
@@ -131,13 +117,13 @@ func (c *OpenWeatherClient) FetchPaginated(ctx context.Context, apiName string, 
 
 	// OpenWeather returns single item, so no pagination metadata
 	pagination := NewPaginationMetadata(len(items), "", "")
-	
+
 	return NewPaginatedResponse(items, pagination), nil
 }
 
 func (c *OpenWeatherClient) doRequest(ctx context.Context, method, url string, result interface{}) error {
 	breaker := c.breakerManager.GetBreaker("openweather-api")
-	
+
 	return breaker.Execute(func() error {
 		return c.retrier.Execute(ctx, func() error {
 			req, err := http.NewRequestWithContext(ctx, method, url, nil)
@@ -154,7 +140,7 @@ func (c *OpenWeatherClient) doRequest(ctx context.Context, method, url string, r
 				}
 				return retry.NewRetryableError(err)
 			}
-			
+
 			return nil
 		})
 	})

@@ -3,43 +3,50 @@ package jobs
 import (
 	"context"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/zainokta/item-sync/config"
-	"github.com/zainokta/item-sync/internal/item/usecase"
+	"github.com/zainokta/item-sync/internal/item/entity"
+	"github.com/zainokta/item-sync/internal/item/strategy"
 	"github.com/zainokta/item-sync/pkg/logger"
 )
 
 type SyncJob struct {
 	name           string
-	itemRepository usecase.ItemRepository
+	itemRepository ItemSaver
 	jobRepository  JobRepository
-	cache          usecase.ItemCache
-	apiClient      usecase.ExternalAPIClient
+	apiClient      ExternalAPIClient
 	apiType        string
 	logger         logger.Logger
 	config         config.Config
+	params         map[string]interface{}
 }
 
 func NewSyncJob(
 	name string,
-	itemRepository usecase.ItemRepository,
+	itemRepository ItemSaver,
 	jobRepository JobRepository,
-	cache usecase.ItemCache,
-	apiClient usecase.ExternalAPIClient,
+	apiClient ExternalAPIClient,
 	apiType string,
 	logger logger.Logger,
 	config config.Config,
+	params map[string]interface{},
 ) *SyncJob {
+	// Default to empty map if params is nil
+	if params == nil {
+		params = make(map[string]interface{})
+	}
+
 	return &SyncJob{
 		name:           name,
 		itemRepository: itemRepository,
 		jobRepository:  jobRepository,
-		cache:          cache,
 		apiClient:      apiClient,
 		apiType:        apiType,
 		logger:         logger,
 		config:         config,
+		params:         params,
 	}
 }
 
@@ -107,66 +114,75 @@ func (j *SyncJob) Execute(ctx context.Context) error {
 }
 
 func (j *SyncJob) syncPokemonData(ctx context.Context) (processed, succeeded, failed int, lastErr error) {
-	limit := 20
-	offset := 0
+	pokemonStrategy := strategy.NewPokemonSyncStrategy(j.logger, j.apiClient)
 
-	for {
-		params := map[string]interface{}{
-			"limit":  limit,
-			"offset": offset,
-		}
+	request := strategy.SyncItemsRequest{
+		APISource: "pokemon",
+		Operation: "list",
+		Params:    j.params,
+	}
 
-		items, err := j.apiClient.Fetch(ctx, "pokemon", "list", params)
+	var items []entity.ExternalItem
+	var err error
+
+	// Check if user wants limited fetch or full sync
+	if _, hasLimit := j.params["limit"]; hasLimit {
+		j.logger.Info("Fetching limited Pokemon data", "params", j.params)
+		items, err = pokemonStrategy.Fetch(ctx, request)
+	} else {
+		j.logger.Info("Fetching all Pokemon data")
+		items, err = pokemonStrategy.FetchAllItems(ctx, request)
+	}
+
+	if err != nil {
+		j.logger.Error("Failed to fetch Pokemon data using strategy", "error", err)
+		lastErr = err
+		return
+	}
+
+	j.logger.Info("Fetched Pokemon data successfully", "total_items", len(items))
+
+	for _, item := range items {
+		processed++
+
+		err := j.itemRepository.UpsertWithHash(ctx, "pokemon", item)
 		if err != nil {
-			j.logger.Error("Failed to fetch Pokemon data", "error", err, "offset", offset)
+			j.logger.Error("Failed to store Pokemon item", "id", item.ID, "error", err)
+			failed++
 			lastErr = err
-			break
+		} else {
+			succeeded++
+			j.logger.Debug("Successfully stored Pokemon item", "id", item.ID, "title", item.Title)
 		}
 
-		if len(items) == 0 {
-			j.logger.Info("No more Pokemon data to sync")
-			break
-		}
-
-		for _, item := range items {
-			processed++
-
-			err := j.itemRepository.UpsertWithHash(ctx, "pokemon", item)
-			if err != nil {
-				j.logger.Error("Failed to store Pokemon item", "id", item.ID, "error", err)
-				failed++
-				lastErr = err
-			} else {
-				succeeded++
-				j.logger.Debug("Successfully stored Pokemon item", "id", item.ID, "title", item.Title)
+		if processed%100 == 0 {
+			select {
+			case <-ctx.Done():
+				lastErr = ctx.Err()
+				return
+			default:
 			}
-		}
-
-		if len(items) < limit {
-			j.logger.Info("Reached end of Pokemon data")
-			break
-		}
-
-		offset += limit
-
-		select {
-		case <-ctx.Done():
-			lastErr = ctx.Err()
-			return
-		default:
 		}
 	}
 
+	j.logger.Info("Pokemon data sync completed", "processed", processed, "succeeded", succeeded, "failed", failed)
 	return
 }
 
 func (j *SyncJob) syncWeatherData(ctx context.Context) (processed, succeeded, failed int, lastErr error) {
+	// Get cities from params or use defaults
 	cities := []string{"Jakarta", "Bandung", "Surabaya"}
+	if citiesParam, ok := j.params["cities"].(string); ok && len(citiesParam) > 0 {
+		cities = strings.Split(citiesParam, ",")
+	}
 
 	for _, city := range cities {
-		params := map[string]interface{}{
-			"city": city,
+		// Merge job params with city-specific params
+		params := make(map[string]interface{})
+		for k, v := range j.params {
+			params[k] = v
 		}
+		params["city"] = city
 
 		items, err := j.apiClient.Fetch(ctx, "openweather", "weather", params)
 		if err != nil {

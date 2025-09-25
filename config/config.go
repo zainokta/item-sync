@@ -64,7 +64,6 @@ type RedisConfig struct {
 }
 
 type APIConfig struct {
-	APIType    string        `env:"API_TYPE" envDefault:"pokemon"`
 	Timeout    time.Duration `env:"TIMEOUT" envDefault:"30s"`
 	MaxRetries int           `env:"MAX_RETRIES" envDefault:"3"`
 	RetryDelay time.Duration `env:"RETRY_DELAY" envDefault:"1s"`

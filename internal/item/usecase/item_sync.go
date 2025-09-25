@@ -3,28 +3,26 @@ package usecase
 import (
 	"context"
 
+	"github.com/zainokta/item-sync/config"
 	pkgErrors "github.com/zainokta/item-sync/internal/errors"
-	"github.com/zainokta/item-sync/internal/item/entity"
-	"github.com/zainokta/item-sync/internal/item/strategy"
+	"github.com/zainokta/item-sync/internal/item/jobs"
+	"github.com/zainokta/item-sync/pkg/api"
 	"github.com/zainokta/item-sync/pkg/logger"
 )
 
 type SyncItemsUseCase struct {
-	itemRepo  ItemRepository
-	apiClient ExternalAPIClient
-	cache     ItemCache
-	logger    logger.Logger
-	strategy  strategy.SyncStrategy
+	cfg      *config.Config
+	itemRepo ItemRepository
+	jobRepo  JobRepository
+	logger   logger.Logger
 }
 
-func NewSyncItemsUseCase(itemRepo ItemRepository, apiClient ExternalAPIClient, cache ItemCache, logger logger.Logger, apiType string) *SyncItemsUseCase {
-	syncStrategy := strategy.NewSyncStrategy(apiType, logger)
+func NewSyncItemsUseCase(cfg *config.Config, itemRepo ItemRepository, jobRepo JobRepository, logger logger.Logger) *SyncItemsUseCase {
 	return &SyncItemsUseCase{
-		itemRepo:  itemRepo,
-		apiClient: apiClient,
-		cache:     cache,
-		logger:    logger,
-		strategy:  syncStrategy,
+		cfg:      cfg,
+		itemRepo: itemRepo,
+		jobRepo:  jobRepo,
+		logger:   logger,
 	}
 }
 
@@ -36,50 +34,47 @@ type SyncItemsRequest struct {
 }
 
 type SyncItemsResponse struct {
-	SuccessCount int           `json:"success_count"`
-	FailedCount  int           `json:"failed_count"`
-	Items        []entity.Item `json:"items,omitempty"`
-	Errors       []string      `json:"errors,omitempty"`
+	Errors  []string `json:"errors,omitempty"`
+	Status  string   `json:"status"`
+	Message string   `json:"message"`
 }
 
 func (uc *SyncItemsUseCase) Execute(ctx context.Context, req SyncItemsRequest) (SyncItemsResponse, error) {
-	strategyReq := strategy.SyncItemsRequest{
-		ForceSync: req.ForceSync,
-		APISource: req.APISource,
-		Operation: req.Operation,
-		Params:    req.Params,
-	}
-
-	externalItems, err := uc.strategy.FetchAllItems(ctx, uc.apiClient, strategyReq)
+	// Create API client based on the requested API source
+	apiClient, err := api.NewAPIClient(req.APISource, uc.cfg.API, uc.cfg.Retry, uc.logger)
 	if err != nil {
+		uc.logger.Error("Failed to create API client", "api_source", req.APISource, "error", err)
 		return SyncItemsResponse{}, pkgErrors.ExternalAPIFailed(err)
 	}
 
-	response := SyncItemsResponse{
-		SuccessCount: 0,
-		FailedCount:  0,
-		Errors:       make([]string, 0),
-		Items:        make([]entity.Item, 0),
+	// Create sync job instance
+	syncJob := jobs.NewSyncJob(
+		"manual_sync",
+		uc.itemRepo,
+		uc.jobRepo,
+		apiClient,
+		req.APISource,
+		uc.logger,
+		*uc.cfg,
+		req.Params,
+	)
+
+	// Start background sync job
+	go uc.executeBackgroundSync(context.Background(), syncJob)
+
+	return SyncItemsResponse{
+		Errors:  make([]string, 0),
+		Status:  "accepted",
+		Message: "Sync job has been accepted for background processing",
+	}, nil
+}
+
+func (uc *SyncItemsUseCase) executeBackgroundSync(ctx context.Context, syncJob *jobs.SyncJob) {
+	uc.logger.Info("Starting background sync job", "job_name", syncJob.Name())
+
+	if err := syncJob.Execute(ctx); err != nil {
+		uc.logger.Error("Background sync job failed", "job_name", syncJob.Name(), "error", err)
+	} else {
+		uc.logger.Info("Background sync job completed successfully", "job_name", syncJob.Name())
 	}
-
-	for _, externalItem := range externalItems {
-		if err := uc.itemRepo.UpsertWithHash(ctx, req.APISource, externalItem); err != nil {
-			uc.logger.Error("Failed to upsert item with hash", "external_id", externalItem.ID, "api_source", req.APISource, "error", err)
-			response.FailedCount++
-			response.Errors = append(response.Errors, err.Error())
-			continue
-		}
-
-		item := entity.NewItem()
-		item.FromAPIResponse(req.APISource, externalItem)
-		response.SuccessCount++
-		response.Items = append(response.Items, item)
-	}
-
-	if err := uc.cache.Invalidate(ctx, "items:all"); err != nil {
-		uc.logger.Warn("Failed to invalidate cache", "error", err, "cache_key", "items:all")
-		response.Errors = append(response.Errors, "failed to invalidate cache: "+err.Error())
-	}
-
-	return response, nil
 }

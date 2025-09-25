@@ -5,16 +5,18 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/zainokta/item-sync/config"
 	pkgErrors "github.com/zainokta/item-sync/internal/errors"
 	"github.com/zainokta/item-sync/internal/item/entity"
+	"github.com/zainokta/item-sync/pkg/api"
 	"github.com/zainokta/item-sync/pkg/logger"
 )
 
 type FetchItemUseCase struct {
-	itemRepo  ItemRepository
-	apiClient ExternalAPIClient
-	cache     ItemCache
-	logger    logger.Logger
+	cfg      *config.Config
+	itemRepo ItemRepository
+	cache    ItemCache
+	logger   logger.Logger
 }
 
 type FetchItemRequest struct {
@@ -26,12 +28,12 @@ type FetchItemResponse struct {
 	Item entity.Item `json:"item"`
 }
 
-func NewFetchItemUseCase(itemRepo ItemRepository, apiClient ExternalAPIClient, cache ItemCache, logger logger.Logger) *FetchItemUseCase {
+func NewFetchItemUseCase(cfg *config.Config, itemRepo ItemRepository, cache ItemCache, logger logger.Logger) *FetchItemUseCase {
 	return &FetchItemUseCase{
-		itemRepo:  itemRepo,
-		apiClient: apiClient,
-		cache:     cache,
-		logger:    logger,
+		cfg:      cfg,
+		itemRepo: itemRepo,
+		cache:    cache,
+		logger:   logger,
 	}
 }
 
@@ -52,7 +54,12 @@ func (uc *FetchItemUseCase) Execute(ctx context.Context, req FetchItemRequest) (
 		}, nil
 	}
 
-	externalItem, err := uc.apiClient.FetchByID(ctx, req.APISource, req.ID)
+	apiClient, err := api.NewAPIClient(req.APISource, uc.cfg.API, uc.cfg.Retry, uc.logger)
+	if err != nil {
+		return FetchItemResponse{}, err
+	}
+
+	externalItem, err := apiClient.FetchByID(ctx, req.APISource, req.ID)
 	if err != nil {
 		return FetchItemResponse{}, pkgErrors.ExternalAPIFailed(err)
 	}

@@ -45,11 +45,11 @@ func (uc *ListItemsUseCase) Execute(ctx context.Context, req ListItemsRequest) (
 		req.Offset = 0
 	}
 
-	cacheKey := fmt.Sprintf("items:%s:%s:%d:%d", req.ItemType, req.Status, req.Limit, req.Offset)
+	cacheKey := fmt.Sprintf("items:%s:%s:%d:%d", req.APISource, req.Status, req.Limit, req.Offset)
 
 	if cachedItems, err := uc.cache.GetItems(ctx, cacheKey); err == nil {
 		return ListItemsResponse{
-			Items:     cachedItems,
+			Items: cachedItems,
 		}, nil
 	}
 
@@ -71,8 +71,10 @@ func (uc *ListItemsUseCase) Execute(ctx context.Context, req ListItemsRequest) (
 		return ListItemsResponse{}, errors.DatabaseError(err)
 	}
 
-	if cacheErr := uc.cache.SetItems(ctx, cacheKey, items, 10*time.Minute); cacheErr != nil {
-		uc.logger.Warn("Failed to cache items", "error", cacheErr, "cache_key", cacheKey)
+	if len(items) != 0 {
+		if cacheErr := uc.cache.SetItems(ctx, cacheKey, items, 10*time.Minute); cacheErr != nil {
+			uc.logger.Warn("Failed to cache items", "error", cacheErr, "cache_key", cacheKey)
+		}
 	}
 
 	return ListItemsResponse{

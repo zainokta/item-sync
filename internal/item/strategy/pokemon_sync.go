@@ -10,27 +10,29 @@ import (
 )
 
 type PokemonSyncStrategy struct {
-	logger logger.Logger
+	logger    logger.Logger
+	apiClient ExternalAPIClient
 }
 
-func NewPokemonSyncStrategy(logger logger.Logger) *PokemonSyncStrategy {
+func NewPokemonSyncStrategy(logger logger.Logger, apiClient ExternalAPIClient) *PokemonSyncStrategy {
 	return &PokemonSyncStrategy{
-		logger: logger,
+		logger:    logger,
+		apiClient: apiClient,
 	}
 }
 
-func (p *PokemonSyncStrategy) FetchAllItems(ctx context.Context, apiClient ExternalAPIClient, request SyncItemsRequest) ([]entity.ExternalItem, error) {
+func (p *PokemonSyncStrategy) FetchAllItems(ctx context.Context, request SyncItemsRequest) ([]entity.ExternalItem, error) {
 	var allItems []entity.ExternalItem
-	
+
 	offset := 0
 	limit := 20
-	
+
 	if request.Params != nil {
-		if paramOffset, ok := request.Params["offset"].(int); ok {
-			offset = paramOffset
+		if paramOffset, ok := request.Params["offset"].(float64); ok {
+			offset = int(paramOffset)
 		}
-		if paramLimit, ok := request.Params["limit"].(int); ok {
-			limit = paramLimit
+		if paramLimit, ok := request.Params["limit"].(float64); ok {
+			limit = int(paramLimit)
 		}
 	}
 
@@ -39,23 +41,23 @@ func (p *PokemonSyncStrategy) FetchAllItems(ctx context.Context, apiClient Exter
 			"offset": offset,
 			"limit":  limit,
 		}
-		
-		response, err := apiClient.FetchPaginated(ctx, request.APISource, request.Operation, params)
+
+		response, err := p.apiClient.FetchPaginated(ctx, request.APISource, request.Operation, params)
 		if err != nil {
 			return allItems, err
 		}
-		
+
 		if len(response.Items) == 0 {
 			break
 		}
-		
+
 		allItems = append(allItems, response.Items...)
-		
+
 		// Use structured pagination metadata
 		if response.Pagination == nil || !response.Pagination.HasNext {
 			break
 		}
-		
+
 		// Parse next URL to get new offset and limit
 		if response.Pagination.Next != "" {
 			newOffset, newLimit, err := p.parseNextURL(response.Pagination.Next)
@@ -71,52 +73,14 @@ func (p *PokemonSyncStrategy) FetchAllItems(ctx context.Context, apiClient Exter
 		} else {
 			offset += limit
 		}
-		
+
 		// Safety check to prevent infinite loops
 		if len(response.Items) < limit {
 			break
 		}
 	}
-	
-	return allItems, nil
-}
 
-func (p *PokemonSyncStrategy) extractNextURL(items []entity.ExternalItem) (string, bool) {
-	if len(items) == 0 {
-		return "", false
-	}
-	
-	// The Pokemon API client should store the full response in the first item's ExtendInfo
-	// Look for pagination info from the response metadata
-	for _, item := range items {
-		if item.ExtendInfo == nil {
-			continue
-		}
-		
-		// Check if this item has pagination info stored by the API client
-		if responseData, ok := item.ExtendInfo["response_metadata"]; ok {
-			if metadata, ok := responseData.(map[string]interface{}); ok {
-				if nextURL, exists := metadata["next"]; exists && nextURL != nil {
-					if nextStr, ok := nextURL.(string); ok {
-						return nextStr, true
-					}
-				}
-			}
-		}
-		
-		// Fallback: check raw_data
-		if rawData, ok := item.ExtendInfo["raw_data"]; ok {
-			if pokemonItem, ok := rawData.(map[string]interface{}); ok {
-				if nextURL, exists := pokemonItem["next"]; exists && nextURL != nil {
-					if nextStr, ok := nextURL.(string); ok {
-						return nextStr, true
-					}
-				}
-			}
-		}
-	}
-	
-	return "", false
+	return allItems, nil
 }
 
 func (p *PokemonSyncStrategy) parseNextURL(nextURL string) (offset, limit int, err error) {
@@ -124,9 +88,9 @@ func (p *PokemonSyncStrategy) parseNextURL(nextURL string) (offset, limit int, e
 	if err != nil {
 		return 0, 20, err
 	}
-	
+
 	query := parsedURL.Query()
-	
+
 	offsetStr := query.Get("offset")
 	if offsetStr != "" {
 		offset, err = strconv.Atoi(offsetStr)
@@ -134,7 +98,7 @@ func (p *PokemonSyncStrategy) parseNextURL(nextURL string) (offset, limit int, e
 			offset = 0
 		}
 	}
-	
+
 	limitStr := query.Get("limit")
 	if limitStr != "" {
 		limit, err = strconv.Atoi(limitStr)
@@ -144,6 +108,33 @@ func (p *PokemonSyncStrategy) parseNextURL(nextURL string) (offset, limit int, e
 	} else {
 		limit = 20
 	}
-	
+
 	return offset, limit, nil
+}
+
+func (p *PokemonSyncStrategy) Fetch(ctx context.Context, request SyncItemsRequest) ([]entity.ExternalItem, error) {
+	offset := 0
+	limit := 20
+
+	if request.Params != nil {
+		if paramOffset, ok := request.Params["offset"].(float64); ok {
+			offset = int(paramOffset)
+		}
+		if paramLimit, ok := request.Params["limit"].(float64); ok {
+			limit = int(paramLimit)
+		}
+	}
+
+	// Make single API call with specified parameters
+	params := map[string]interface{}{
+		"offset": offset,
+		"limit":  limit,
+	}
+
+	response, err := p.apiClient.FetchPaginated(ctx, request.APISource, request.Operation, params)
+	if err != nil {
+		return nil, err
+	}
+
+	return response.Items, nil
 }

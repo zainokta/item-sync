@@ -132,15 +132,3 @@ func (s *Scheduler) executeJob(ctx context.Context, job Job) {
 			"execution_time", executionTime)
 	}
 }
-
-func (s *Scheduler) GetJobCount() int {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-	return len(s.jobs)
-}
-
-func (s *Scheduler) IsRunning() bool {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-	return s.running
-}

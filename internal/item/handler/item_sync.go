@@ -78,16 +78,12 @@ func (h *SyncHandler) SyncItems(c echo.Context) error {
 		})
 	}
 
-	h.logger.Info("Sync completed",
-		"success_count", response.SuccessCount,
-		"failed_count", response.FailedCount,
-	)
+	h.logger.Info("Sync completed")
 
 	return c.JSON(http.StatusOK, dto.SyncItemsResponse{
-		SuccessCount: response.SuccessCount,
-		FailedCount:  response.FailedCount,
-		Items:        response.Items,
-		Errors:       response.Errors,
+		Errors:  response.Errors,
+		Status:  response.Status,
+		Message: response.Message,
 	})
 }
 

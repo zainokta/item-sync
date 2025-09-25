@@ -7,42 +7,37 @@ import (
 	"github.com/stretchr/testify/assert"
 )
 
-func TestAPIConfig_APIType(t *testing.T) {
+func TestConfig(t *testing.T) {
 	tests := []struct {
 		name         string
 		envValue     string
-		expectedType string
+		expectedType int
 	}{
 		{
-			name:         "default API type should be pokemon",
+			name:         "default Max Idle conns should be pokemon",
 			envValue:     "",
-			expectedType: "pokemon",
+			expectedType: 10,
 		},
 		{
-			name:         "can set API type to openweather",
-			envValue:     "openweather",
-			expectedType: "openweather",
-		},
-		{
-			name:         "can set API type to custom value",
-			envValue:     "custom",
-			expectedType: "custom",
+			name:         "can set Max Idle conns to custom value",
+			envValue:     "50",
+			expectedType: 50,
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			// Clean up environment
-			os.Unsetenv("API_API_TYPE")
+			os.Unsetenv("API_MAX_IDLE_CONNS")
 
 			if tt.envValue != "" {
-				os.Setenv("API_API_TYPE", tt.envValue)
-				defer os.Unsetenv("API_API_TYPE")
+				os.Setenv("API_MAX_IDLE_CONNS", tt.envValue)
+				defer os.Unsetenv("API_MAX_IDLE_CONNS")
 			}
 
 			cfg, err := LoadConfig()
 			assert.NoError(t, err, "LoadConfig should not return an error")
-			assert.Equal(t, tt.expectedType, cfg.API.APIType, "API type should match expected value")
+			assert.Equal(t, tt.expectedType, cfg.API.MaxIdleConns, "Max Idle conns should match expected value")
 		})
 	}
 }

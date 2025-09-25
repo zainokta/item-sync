@@ -81,7 +81,10 @@ func NewApplication() (*Application, error) {
 		return nil, err
 	}
 
-	RegisterRoutes(server.GetEcho(), cfg, logger, db, redisClient)
+	// Create repository container
+	repoContainer := repository.NewRepositoryContainer(db, redisClient, cfg.Cache.DefaultTTL, logger)
+
+	RegisterRoutes(server.GetEcho(), cfg, logger, repoContainer)
 
 	// Create worker scheduler
 	ctx, cancel := context.WithCancel(context.Background())
@@ -89,28 +92,29 @@ func NewApplication() (*Application, error) {
 
 	// Create and register sync jobs if worker is enabled
 	if cfg.Worker.Enabled {
-		itemRepo := repository.NewItemRepository(db, logger)
-		jobRepo := repository.NewJobRepository(db, logger)
-		itemCache := repository.NewItemCache(redisClient, cfg.Cache.DefaultTTL, logger)
+		availableAPIs := []string{"pokemon", "openweather"}
 
 		// Create API client
-		apiClient, err := api.NewAPIClient(cfg.API.APIType, cfg.API, cfg.Retry, logger)
-		if err != nil {
-			logger.Warn("Failed to create API client for worker", "error", err)
-		} else {
-			// Register sync job
-			syncJob := jobs.NewSyncJob(
-				"background-sync",
-				itemRepo,
-				jobRepo,
-				itemCache,
-				apiClient,
-				cfg.API.APIType,
-				logger,
-				*cfg,
-			)
-			scheduler.RegisterJob(syncJob)
+		for _, availableAPI := range availableAPIs {
+			apiClient, err := api.NewAPIClient(availableAPI, cfg.API, cfg.Retry, logger)
+			if err != nil {
+				logger.Warn("Failed to create API client for worker", "error", err)
+			} else {
+				// Register sync job
+				syncJob := jobs.NewSyncJob(
+					"background-sync",
+					repoContainer.GetItemRepository(),
+					repoContainer.GetJobRepository(),
+					apiClient,
+					availableAPI,
+					logger,
+					*cfg,
+					nil,
+				)
+				scheduler.RegisterJob(syncJob)
+			}
 		}
+
 	}
 
 	return &Application{

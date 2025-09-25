@@ -2,10 +2,16 @@ package strategy
 
 import (
 	"context"
+	"errors"
 
+	"github.com/zainokta/item-sync/config"
 	"github.com/zainokta/item-sync/internal/item/entity"
 	"github.com/zainokta/item-sync/pkg/api"
 	"github.com/zainokta/item-sync/pkg/logger"
+)
+
+var (
+	ErrAPISourceNotSupported = errors.New("api source is not supported yet")
 )
 
 // ExternalAPIClient interface for external API calls
@@ -24,22 +30,25 @@ type SyncItemsRequest struct {
 }
 
 type SyncStrategy interface {
-	FetchAllItems(ctx context.Context, apiClient ExternalAPIClient, request SyncItemsRequest) ([]entity.ExternalItem, error)
+	FetchAllItems(ctx context.Context, request SyncItemsRequest) ([]entity.ExternalItem, error)
+	Fetch(ctx context.Context, request SyncItemsRequest) ([]entity.ExternalItem, error)
 }
 
-func NewSyncStrategy(apiType string, logger logger.Logger) SyncStrategy {
+func NewSyncStrategy(cfg *config.Config, apiType string, logger logger.Logger) (SyncStrategy, error) {
 	switch apiType {
 	case "pokemon":
-		return NewPokemonSyncStrategy(logger)
+		apiClient, err := api.NewAPIClient(apiType, cfg.API, cfg.Retry, logger)
+		if err != nil {
+			return nil, err
+		}
+		return NewPokemonSyncStrategy(logger, apiClient), nil
 	case "openweather":
-		return NewOpenWeatherSyncStrategy()
+		apiClient, err := api.NewAPIClient(apiType, cfg.API, cfg.Retry, logger)
+		if err != nil {
+			return nil, err
+		}
+		return NewOpenWeatherSyncStrategy(apiClient), nil
 	default:
-		return &DefaultSyncStrategy{}
+		return nil, ErrAPISourceNotSupported
 	}
-}
-
-type DefaultSyncStrategy struct{}
-
-func (d *DefaultSyncStrategy) FetchAllItems(ctx context.Context, apiClient ExternalAPIClient, request SyncItemsRequest) ([]entity.ExternalItem, error) {
-	return apiClient.Fetch(ctx, request.APISource, request.Operation, request.Params)
 }

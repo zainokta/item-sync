@@ -18,10 +18,10 @@ func (m *mockPokemonAPIClient) Fetch(ctx context.Context, apiName string, operat
 	if m.calls >= len(m.pages) {
 		return []entity.ExternalItem{}, nil
 	}
-	
+
 	page := m.pages[m.calls]
 	m.calls++
-	
+
 	return page, nil
 }
 
@@ -32,10 +32,10 @@ func (m *mockPokemonAPIClient) FetchPaginated(ctx context.Context, apiName strin
 			Pagination: api.NewPaginationMetadata(0, "", ""),
 		}, nil
 	}
-	
+
 	page := m.pages[m.calls]
 	m.calls++
-	
+
 	var pagination *api.PaginationMetadata
 	if m.calls < len(m.pages) {
 		// Has next page
@@ -45,7 +45,7 @@ func (m *mockPokemonAPIClient) FetchPaginated(ctx context.Context, apiName strin
 		// Last page
 		pagination = api.NewPaginationMetadata(1000, "", "")
 	}
-	
+
 	return &api.PaginatedResponse{
 		Items:      page,
 		Pagination: pagination,
@@ -64,7 +64,7 @@ func TestPokemonSyncStrategy_FetchAllItems(t *testing.T) {
 				{ID: 1, Title: "bulbasaur", ExtendInfo: make(map[string]interface{})},
 				{ID: 2, Title: "ivysaur", ExtendInfo: make(map[string]interface{})},
 			},
-			// Page 2  
+			// Page 2
 			{
 				{ID: 3, Title: "venusaur", ExtendInfo: make(map[string]interface{})},
 				{ID: 4, Title: "charmander", ExtendInfo: make(map[string]interface{})},
@@ -76,19 +76,19 @@ func TestPokemonSyncStrategy_FetchAllItems(t *testing.T) {
 		},
 	}
 
-	strategy := NewPokemonSyncStrategy(nil)
+	strategy := NewPokemonSyncStrategy(nil, mockClient)
 	request := SyncItemsRequest{
 		APISource: "pokemon",
 		Operation: "list",
 		Params:    map[string]interface{}{"limit": 2},
 	}
 
-	items, err := strategy.FetchAllItems(context.Background(), mockClient, request)
+	items, err := strategy.FetchAllItems(context.Background(), request)
 
 	assert.NoError(t, err, "Should fetch all items without error")
 	assert.Len(t, items, 5, "Should fetch all items across all pages")
 	assert.Equal(t, 3, mockClient.calls, "Should make 3 API calls for 3 pages")
-	
+
 	// Verify items are in correct order
 	expectedTitles := []string{"bulbasaur", "ivysaur", "venusaur", "charmander", "charmeleon"}
 	for i, item := range items {
@@ -98,13 +98,13 @@ func TestPokemonSyncStrategy_FetchAllItems(t *testing.T) {
 }
 
 func TestPokemonSyncStrategy_ParseNextURL(t *testing.T) {
-	strategy := NewPokemonSyncStrategy(nil)
-	
+	strategy := NewPokemonSyncStrategy(nil, nil)
+
 	tests := []struct {
-		name        string
-		url         string
-		wantOffset  int
-		wantLimit   int
+		name       string
+		url        string
+		wantOffset int
+		wantLimit  int
 	}{
 		{
 			name:       "valid next URL",
@@ -129,9 +129,9 @@ func TestPokemonSyncStrategy_ParseNextURL(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			offset, limit, err := strategy.parseNextURL(tt.url)
-			
+
 			assert.NoError(t, err, "Should parse valid URL without error")
-			
+
 			assert.Equal(t, tt.wantOffset, offset, "Should parse correct offset")
 			assert.Equal(t, tt.wantLimit, limit, "Should parse correct limit")
 		})

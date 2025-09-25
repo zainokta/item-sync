@@ -10,7 +10,6 @@ import (
 	"github.com/zainokta/item-sync/config"
 	"github.com/zainokta/item-sync/internal/errors"
 	"github.com/zainokta/item-sync/internal/item/entity"
-	"github.com/zainokta/item-sync/pkg/circuit"
 	"github.com/zainokta/item-sync/pkg/logger"
 	"github.com/zainokta/item-sync/pkg/retry"
 )
@@ -31,29 +30,15 @@ type PokemonClient struct {
 	*BaseClient
 }
 
-func NewPokemonClient(config config.APIConfig, retrier *retry.Retrier, breakerManager *circuit.BreakerManager, logger logger.Logger) *PokemonClient {
+func NewPokemonClient(config config.APIConfig, retryConfig config.RetryConfig, logger logger.Logger) *PokemonClient {
 	return &PokemonClient{
-		BaseClient: &BaseClient{
-			client: &http.Client{
-				Timeout: config.Timeout,
-				Transport: &http.Transport{
-					MaxIdleConns:        config.MaxIdleConns,
-					IdleConnTimeout:     config.IdleConnTimeout,
-					DisableCompression:  config.DisableCompression,
-					MaxIdleConnsPerHost: config.MaxIdleConnsPerHost,
-				},
-			},
-			retrier:        retrier,
-			breakerManager: breakerManager,
-			logger:         logger,
-		},
+		BaseClient: getBaseClient(config, retryConfig, logger),
 	}
 }
 
 func (c *PokemonClient) Fetch(ctx context.Context, apiName string, operation string, params map[string]interface{}) ([]entity.ExternalItem, error) {
-	// Hardcoded Pokemon API configuration
 	baseURL := "https://pokeapi.co/api/v2"
-	
+
 	var endpoint string
 	switch operation {
 	case "list":
@@ -73,14 +58,14 @@ func (c *PokemonClient) Fetch(ctx context.Context, apiName string, operation str
 		} else {
 			// Handle list parameters (limit, offset)
 			queryParams := ""
-			if limit, ok := params["limit"].(int); ok {
-				queryParams += fmt.Sprintf("limit=%d", limit)
+			if limit, ok := params["limit"].(float64); ok {
+				queryParams += fmt.Sprintf("limit=%f", limit)
 			}
-			if offset, ok := params["offset"].(int); ok {
+			if offset, ok := params["offset"].(float64); ok {
 				if queryParams != "" {
 					queryParams += "&"
 				}
-				queryParams += fmt.Sprintf("offset=%d", offset)
+				queryParams += fmt.Sprintf("offset=%f", offset)
 			}
 			if queryParams != "" {
 				url = fmt.Sprintf("%s?%s", url, queryParams)
@@ -121,6 +106,8 @@ func (c *PokemonClient) transformPokemonResponse(response PokemonResponse) []ent
 			ExtendInfo: make(map[string]interface{}),
 		}
 
+		externalItem.ExtendInfo["api_source"] = "pokemon"
+		externalItem.ExtendInfo["url"] = pokemonItem.URL
 		externalItem.ExtendInfo["raw_data"] = pokemonItem
 
 		items = append(items, externalItem)
@@ -130,9 +117,8 @@ func (c *PokemonClient) transformPokemonResponse(response PokemonResponse) []ent
 }
 
 func (c *PokemonClient) FetchPaginated(ctx context.Context, apiName string, operation string, params map[string]interface{}) (*PaginatedResponse, error) {
-	// Hardcoded Pokemon API configuration
 	baseURL := "https://pokeapi.co/api/v2"
-	
+
 	var endpoint string
 	switch operation {
 	case "list":
@@ -145,12 +131,10 @@ func (c *PokemonClient) FetchPaginated(ctx context.Context, apiName string, oper
 
 	url := fmt.Sprintf("%s%s", baseURL, endpoint)
 
-	// Handle parameters
 	if len(params) > 0 {
 		if id, ok := params["id"].(int); ok {
 			url = fmt.Sprintf("%s/%d", url, id)
 		} else {
-			// Handle list parameters (limit, offset)
 			queryParams := ""
 			if limit, ok := params["limit"].(int); ok {
 				queryParams += fmt.Sprintf("limit=%d", limit)
@@ -175,7 +159,7 @@ func (c *PokemonClient) FetchPaginated(ctx context.Context, apiName string, oper
 
 	items := c.transformPokemonResponse(response)
 	pagination := NewPaginationMetadata(response.Count, response.Next, response.Previous)
-	
+
 	return NewPaginatedResponse(items, pagination), nil
 }
 
@@ -192,7 +176,7 @@ func (c *PokemonClient) extractPokemonID(url string) int {
 
 func (c *PokemonClient) doRequest(ctx context.Context, method, url string, result interface{}) error {
 	breaker := c.breakerManager.GetBreaker("pokemon-api")
-	
+
 	return breaker.Execute(func() error {
 		return c.retrier.Execute(ctx, func() error {
 			req, err := http.NewRequestWithContext(ctx, method, url, nil)
@@ -209,7 +193,7 @@ func (c *PokemonClient) doRequest(ctx context.Context, method, url string, resul
 				}
 				return retry.NewRetryableError(err)
 			}
-			
+
 			return nil
 		})
 	})

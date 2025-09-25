@@ -39,7 +39,13 @@ type ExternalAPIClient interface {
 	FetchPaginated(ctx context.Context, apiName string, operation string, params map[string]interface{}) (*api.PaginatedResponse, error)
 }
 
-// ItemRepository interface combining saver and finder
+// JobRepository interface for job management
+type JobRepository interface {
+	CreateSyncJobRecord(ctx context.Context, name string, apiType string) (int64, error)
+	UpdateSyncJobRecord(ctx context.Context, jobID int64, status string, processed, succeeded, failed int, lastErr error, executionTime time.Duration) error
+}
+
+// ItemRepository interface combining saver, finder, and job repository
 type ItemRepository interface {
 	ItemSaver
 	ItemFinder

@@ -7,7 +7,7 @@ import (
 
 // Item represents a synchronized item from external APIs
 type Item struct {
-	ID          int                    `json:"id" db:"id" example:"1" description:"Internal database ID"`
+	ID          int                    `json:"id,omitempty" db:"id" example:"1" description:"Internal database ID"`
 	Title       string                 `json:"title" db:"title" example:"Pikachu" description:"Item title/name"`
 	Description string                 `json:"description" db:"description" example:"Electric-type Pokemon" description:"Item description"`
 	ExternalID  int                    `json:"external_id" db:"external_id" example:"25" description:"ID from external API"`
